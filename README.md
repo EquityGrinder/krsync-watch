@@ -1,124 +1,130 @@
-# krsync-watch: Event-Based Bidirectional Sync (Win11 ↔ k8s Pod)
+# krsync-bidirectional: Two-Way Event-Driven Sync (Windows ↔ Kubernetes Pod)
 
 ## Overview
 
-**krsync-watch** is a pair of simple Bash scripts that enable seamless, event-driven file synchronization between a local Windows 11 machine (using Git Bash) and a directory within a Kubernetes pod. Changes are synced instantly — perfect for live development, CI/CD, or collaborative scenarios where directories must stay up to date with minimal overhead.
+`krsync-bidirectional` is a robust Bash-based solution for **real-time, bidirectional file sync** between a Windows 11 folder and a directory in a Kubernetes pod. It leverages event watchers on both sides—`fswatch` (Windows) and `inotifywait` (Pod)—to mirror changes instantly without manual intervention.
 
-- **Event-based (real-time) sync:** Scripts use `fswatch` and standard Bash utilities to react instantly to file changes.
-- **Bidirectional:** Sync either from Win11 to k8s pod, or the reverse.
-- **Minimal dependencies:** Only standard Bash, rsync, tar, kubectl, and fswatch (via npm).
-- **Exclusion filters built-in:** Sensible defaults for `.git`, `node_modules`, logs (easy to customize)
-- **Extensible:** All paths, exclusion filters, and intervals are easily configurable.
+- **One script to rule them all:** Run on your Windows machine to manage two-way sync in parallel.
+- **Event-driven:** Changes in either location are synced live, not polled.
+- **Minimal, cross-platform dependencies:** Only Bash, rsync, tar, kubectl, fswatch (npm), inotifywait (Pod).
+- **Built-in exclusions:** Smart filtering for `.git`, `node_modules`, and logs; customizable via config or args.
+- **Flexible:** Fully configurable paths, namespace, pod, exclude file, logging.
+- **Open source & extensible.**
 
 ---
 
 ## Features
-- Fast, event-driven directory sync
-- Built for cross-platform (Win11 + k8s)
-- Built-in exclusion of junk directories and files
-- Fully configurable sync source/target/destination
-- Works with standard bash, rsync, tar, kubectl
-- Simple usage and clear feedback for errors
+- **True bidirectional file sync:** Keeps two dirs in perfect real-time parity.
+- **Configurable source/destination paths** for both local and pod.
+- **Built-in & custom file exclusions** (`node_modules`, `.git`, `*.log` by default).
+- **Automatic dependency and environment checks** (with error feedback).
+- **Clear logging:** Optional logfile.
+- **Extensible design:** Add your own exclude files, polling fallback, log rotations.
 
 ---
 
 ## Requirements
+### Windows Side
+- [Git Bash](https://gitforwindows.org/)
+- [npm](https://nodejs.org/) (for fswatch)
+- [rsync](https://www.msys2.org/), [tar](https://www.gnu.org/software/tar/), [kubectl](https://kubernetes.io/docs/tasks/tools/)
 
-### On Windows 11:
-- [Git Bash](https://gitforwindows.org/) (recommended)
-- [npm](https://nodejs.org/) for installing fswatch
-- [rsync](https://www.msys2.org/) (from MSYS2, Cygwin, or WSL if not already present)
-- [tar](https://www.gnu.org/software/tar/)
-- [kubectl](https://kubernetes.io/docs/tasks/tools/) (installed and configured)
-
-### On Kubernetes Pod:
+### Kubernetes Pod
 - bash
 - rsync
 - tar
-- Optionally: [inotify-tools](https://github.com/inotify-tools/inotify-tools) for inotifywait if bidirectional sync is needed
+- [inotifywait (inotify-tools)](https://github.com/inotify-tools/inotify-tools) 
 
 ---
 
 ## Installation
-1. **Install fswatch for event watching:**
-   ```sh
-   npm install -g fswatch
-   ```
-2. **Install rsync:**
-   - On Windows: Use [MSYS2](https://www.msys2.org/), [Cygwin](https://www.cygwin.com/), or [WSL](https://docs.microsoft.com/en-us/windows/wsl/).
-   - On Linux: Usually already installed, else `sudo apt install rsync`.
-3. **Ensure kubectl is installed and configured.**
-4. **Confirm tar is available (should be standard on all UNIX-like systems and in MSYS2/Cygwin/WSL).**
+
+### 1. Windows
+- Install dependencies:
+  ```sh
+  npm install -g fswatch
+  # For rsync, tar: Use MSYS2/Cygwin/WSL as needed
+  # For kubectl: https://kubernetes.io/docs/tasks/tools/
+  ```
+  Confirm all tools are available in your shell.
+
+### 2. Pod
+- Confirm tools in your pod:
+  ```sh
+  kubectl exec <pod> -- bash -c "which rsync && which tar && which inotifywait"
+  # If missing, install via apt/your distro
+  # Example for Debian/Ubuntu pod:
+  apt update && apt install -y rsync tar inotify-tools
+  ```
 
 ---
 
 ## Usage
 
-### 1. Win11 → k8s Pod (`win-to-k8s.sh`)
+### Bidirectional Sync from Windows
+Run `krsync-bidirectional.sh` from your Win11 project directory:
 
-**Syncs local directory to a directory inside your Kubernetes pod whenever a change is detected.**
-
-__Basic usage:__
 ```sh
-./win-to-k8s.sh <pod-name> [namespace] [local-source-dir] [pod-target-dir]
+./krsync-bidirectional.sh <pod-name> [namespace] [local-dir] [pod-dir] [exclude-file] [logfile]
 ```
-- `pod-name`: Name of the target pod.
-- `namespace`: (optional) Kubernetes namespace (default: `default`).
-- `local-source-dir`: (optional) Directory to watch locally (default: current directory).
-- `pod-target-dir`: (optional) Directory in pod to sync to (default: `/home/user/projects`).
+**Arguments:**
+- `pod-name`: Name of your pod (required)
+- `namespace`: Kubernetes namespace (default: `default`)
+- `local-dir`: Path to local directory to sync (default: current directory)
+- `pod-dir`: Path in pod to sync (default: `/home/user/projects`)
+- `exclude-file`: Optional rsync exclude file (like `.krsyncignore`)
+- `logfile`: Optional path for sync logs
 
-__Example:__
+**Example:**
 ```sh
-./win-to-k8s.sh mypod dev ./src /home/devuser/app
+./krsync-bidirectional.sh mypod dev ./src /home/appuser/app .krsyncignore krsync.log
 ```
+This watches both local and pod directories for changes, syncing files in both directions using tar+rsync.
 
-### 2. k8s Pod → Win11 (`k8s-to-win.sh`)
+---
 
-**Syncs pod directory to local Win11 directory on file change using inotify (if available), or by polling as fallback.**
+### Pod Event Watch Script (to be run in pod)
+For advanced use, you may want a helper script for the pod to push events back:
 
-__Basic usage:__
-```sh
-./k8s-to-win.sh <pod-name> [namespace] [pod-source-dir] [local-target-dir]
+Save this as `pod-sync-event.sh` in your pod (or your repo):
+```bash
+#!/bin/bash
+# Usage: ./pod-sync-event.sh <watched-dir>
+WATCH_DIR="${1:-/home/user/projects}"
+EXCLUDES=(--exclude 'node_modules' --exclude '.git' --exclude '*.log')
+while inotifywait -r -e modify,create,delete "$WATCH_DIR"; do
+  tar --exclude='node_modules' --exclude='.git' --exclude='*.log' -cf /tmp/podsync.tar -C "$WATCH_DIR" .
+  # You can choose to kubectl cp this file out or trigger your bidirectional sync script to fetch it
+  rm -f /tmp/podsync.tar
+done
 ```
-- `pod-name`: Name of your pod
-- `namespace`: (optional) Kubernetes namespace (default: `default`)
-- `pod-source-dir`: (optional) Directory inside the pod to watch (default: `/home/user/projects`)
-- `local-target-dir`: (optional) Local directory to sync to (default: current directory)
-
-__Example:__
-```sh
-./k8s-to-win.sh mypod dev /home/devuser/app ./synced
-```
-
+You could use this inside your pod, for special cases (in a CI pipeline or as part of complex event logic).
 
 ---
 
 ## Built-in Rsync Exclusions
-
-To avoid syncing unnecessary files, both scripts use these default exclusions:
+Defaults:
 - `node_modules`
 - `.git`
 - `*.log`
-You can add more in the script via the `EXCLUDES` section.
+You may provide more via an exclude file passed as argument.
 
 ---
 
 ## Troubleshooting & FAQ
+- "Tool not found"? Make sure fswatch/rsync/tar/kubectl are in your PATH (Win) and rsync, tar, inotifywait (Pod).
+- "Permission denied"? Check pod dir/owner; Win user must own local.
+- "Sync loop or event spam"? Tweak exclude file, limit event types, or add debouncing. Avoid syncing generated/lock files.
+- "Filename errors"? Avoid Windows-reserved characters (tar handles most unicode/utf-8).
+- "Inotifywait not working"? Check pod OS/package manager. Use polling if truly needed.
+- "Large files slow to sync"? Try increasing sync intervals or exclude large cache/build dirs.
 
-### Common issues:
-- **Tool not found?** Ensure `fswatch`, `rsync`, `tar`, and `kubectl` are in your PATH.
-- **Permission denied in pod?** User running rsync/tar in the pod must own the target directory.
-- **rsync errors?** Check permissions, and if sync direction/paths are correct.
-- **kubectl errors?** Make sure context and pod name/namespace are correct. Test with `kubectl exec` manually.
-- **Event spam?** fswatch (or inotifywait) may trigger multiple syncs for single edits. Use exclusion filters, or increase debounce interval if necessary.
-- **No rsync on Windows?** Install via MSYS2, Cygwin, or WSL. Confirm in Git Bash: `which rsync`
-- **Filename/encoding errors?** tar handles Unicode safely; avoid rare Windows-specific reserved characters in file names.
-- **Special files/symlinks:** These may not sync as expected on cross-platform. You can add specific rsync options to handle or ignore links.
+---
 
-### Advanced:
-- **Add exclusions:** In scripts, update the `EXCLUDES` array and rsync argument.
-- **Dry-run:** Adapt rsync command with `--dry-run` for testing.
-- **Polling fallback:** If event watcher not available, loop with sleep interval and run rsync/tar each period.
+## Advanced Configuration
+- Supply your own `.krsyncignore` to exclude extra files/dirs.
+- Use logfiles for audit/debugging by passing a file path as last arg.
+- Tweak event watcher lines in scripts for custom event types.
 
 ---
 
@@ -126,5 +132,4 @@ You can add more in the script via the `EXCLUDES` section.
 MIT
 
 ## Credits
-Built with Bash, npm, fswatch, rsync, kubectl, tar, Kubernetes.
-Thanks to the open source UNIX and k8s communities for stable tools.
+Built with Bash, npm, fswatch, rsync, tar, kubectl, and the Kubernetes + UNIX OS communities.
