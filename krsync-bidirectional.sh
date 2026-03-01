@@ -10,13 +10,19 @@ default_pod="/home/user/projects"
 default_ns="default"
 default_excludes=(--exclude 'node_modules' --exclude '.git' --exclude '*.log')
 
-# --- Args ---
-POD="$1"
-NS="${2:-$default_ns}"
-LOCAL_DIR="${3:-$default_local}"
-POD_DIR="${4:-$default_pod}"
-EXCLUDE_FILE="${5:-}"  # Optional .krsyncignore file path
-LOGFILE="${6:-}"        # Optional logfile path
+# --- Load .env if present ---
+if [ -f .env ]; then
+  set -a
+  source .env
+  set +a
+fi
+# --- Args override .env ---
+POD="${1:-$POD_NAME}"
+NS="${2:-$NAMESPACE}"
+LOCAL_DIR="${3:-$LOCAL_DIR}"
+POD_DIR="${4:-$POD_DIR}"
+EXCLUDE_FILE="${5:-$EXCLUDE_FILE}"
+LOGFILE="${6:-$LOGFILE}"
 
 usage() {
   echo "Usage: $0 <pod-name> [namespace] [local-dir] [pod-dir] [exclude-file] [logfile]"

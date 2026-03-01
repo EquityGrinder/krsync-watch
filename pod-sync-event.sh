@@ -1,8 +1,18 @@
 #!/bin/bash
 # pod-sync-event.sh: Watch a directory in the pod via inotifywait and create a tar archive for syncing
 # Usage: ./pod-sync-event.sh [watched-dir]
-WATCH_DIR="${1:-/home/user/projects}"
-EXCLUDES=(--exclude 'node_modules' --exclude '.git' --exclude '*.log')
+# --- Load .env.pod if present ---
+if [ -f .env.pod ]; then
+  set -a
+  source .env.pod
+  set +a
+fi
+WATCH_DIR="${1:-$WATCH_DIR}"
+EXCLUDES=()
+IFS=',' read -ra excs <<< "$EXCLUDE_PATTERNS"
+for excl in "${excs[@]}"; do
+  EXCLUDES+=(--exclude "$excl")
+done
 
 while inotifywait -r -e modify,create,delete "$WATCH_DIR"; do
   echo "[$(date)] Change detected in $WATCH_DIR. Packing for sync..."
